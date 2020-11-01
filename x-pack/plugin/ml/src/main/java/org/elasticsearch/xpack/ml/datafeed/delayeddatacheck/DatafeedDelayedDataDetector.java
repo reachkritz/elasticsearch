@@ -8,10 +8,12 @@ package org.elasticsearch.xpack.ml.datafeed.delayeddatacheck;
 import org.elasticsearch.action.search.SearchAction;
 import org.elasticsearch.action.search.SearchRequest;
 import org.elasticsearch.action.search.SearchResponse;
+import org.elasticsearch.action.support.IndicesOptions;
 import org.elasticsearch.client.Client;
 import org.elasticsearch.common.util.concurrent.ThreadContext;
 import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.search.aggregations.bucket.histogram.DateHistogramAggregationBuilder;
+import org.elasticsearch.search.aggregations.bucket.histogram.DateHistogramInterval;
 import org.elasticsearch.search.aggregations.bucket.histogram.Histogram;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.elasticsearch.xpack.core.action.util.PageParams;
@@ -26,6 +28,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 import static org.elasticsearch.xpack.core.ClientHelper.ML_ORIGIN;
@@ -45,15 +48,17 @@ public class DatafeedDelayedDataDetector implements DelayedDataDetector {
     private final String jobId;
     private final QueryBuilder datafeedQuery;
     private final String[] datafeedIndices;
+    private final IndicesOptions indicesOptions;
 
     DatafeedDelayedDataDetector(long bucketSpan, long window, String jobId, String timeField, QueryBuilder datafeedQuery,
-                                String[] datafeedIndices, Client client) {
+                                String[] datafeedIndices, IndicesOptions indicesOptions, Client client) {
         this.bucketSpan = bucketSpan;
         this.window = window;
         this.jobId = jobId;
         this.timeField = timeField;
         this.datafeedQuery = datafeedQuery;
         this.datafeedIndices = datafeedIndices;
+        this.indicesOptions = Objects.requireNonNull(indicesOptions);
         this.client = client;
     }
 
@@ -110,10 +115,11 @@ public class DatafeedDelayedDataDetector implements DelayedDataDetector {
     private Map<Long, Long> checkCurrentBucketEventCount(long start, long end) {
         SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder()
             .size(0)
-            .aggregation(new DateHistogramAggregationBuilder(DATE_BUCKETS).interval(bucketSpan).field(timeField))
+            .aggregation(new DateHistogramAggregationBuilder(DATE_BUCKETS)
+                .fixedInterval(new DateHistogramInterval(bucketSpan + "ms")).field(timeField))
             .query(ExtractorUtils.wrapInTimeRangeQuery(datafeedQuery, timeField, start, end));
 
-        SearchRequest searchRequest = new SearchRequest(datafeedIndices).source(searchSourceBuilder);
+        SearchRequest searchRequest = new SearchRequest(datafeedIndices).source(searchSourceBuilder).indicesOptions(indicesOptions);
         try (ThreadContext.StoredContext ignore = client.threadPool().getThreadContext().stashWithOrigin(ML_ORIGIN)) {
             SearchResponse response = client.execute(SearchAction.INSTANCE, searchRequest).actionGet();
             List<? extends Histogram.Bucket> buckets = ((Histogram)response.getAggregations().get(DATE_BUCKETS)).getBuckets();

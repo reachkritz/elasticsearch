@@ -47,7 +47,7 @@ public final class SearchHits implements Writeable, ToXContentFragment, Iterable
     }
 
     public static SearchHits empty(boolean withTotalHits) {
-        // We shouldn't use static final instance, since that could directly be returned by native transport clients
+        // TODO: consider using static final instance
         return new SearchHits(EMPTY, withTotalHits ? new TotalHits(0, Relation.EQUAL_TO) : null, 0);
     }
 
@@ -215,7 +215,7 @@ public final class SearchHits implements Writeable, ToXContentFragment, Iterable
     public static SearchHits fromXContent(XContentParser parser) throws IOException {
         if (parser.currentToken() != XContentParser.Token.START_OBJECT) {
             parser.nextToken();
-            ensureExpectedToken(XContentParser.Token.START_OBJECT, parser.currentToken(), parser::getTokenLocation);
+            ensureExpectedToken(XContentParser.Token.START_OBJECT, parser.currentToken(), parser);
         }
         XContentParser.Token token = parser.currentToken();
         String currentFieldName = null;

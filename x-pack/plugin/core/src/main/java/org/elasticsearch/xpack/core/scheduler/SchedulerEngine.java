@@ -17,11 +17,15 @@ import org.elasticsearch.common.util.concurrent.FutureUtils;
 
 import java.time.Clock;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -67,6 +71,13 @@ public class SchedulerEngine {
 
         public long getScheduledTime() {
             return scheduledTime;
+        }
+
+        @Override
+        public String toString() {
+            return "Event[jobName=" + jobName + "," +
+                "triggeredTime=" + triggeredTime + "," +
+                "scheduledTime=" + scheduledTime + "]";
         }
     }
 
@@ -136,6 +147,10 @@ public class SchedulerEngine {
         }
     }
 
+    public Set<String> scheduledJobIds() {
+        return Collections.unmodifiableSet(new HashSet<>(schedules.keySet()));
+    }
+
     public void add(Job job) {
         ActiveSchedule schedule = new ActiveSchedule(job.getId(), job.getSchedule(), clock.millis());
         schedules.compute(schedule.name, (name, previousSchedule) -> {
@@ -179,8 +194,8 @@ public class SchedulerEngine {
         private final Schedule schedule;
         private final long startTime;
 
-        private volatile ScheduledFuture<?> future;
-        private volatile long scheduledTime;
+        private ScheduledFuture<?> future;
+        private long scheduledTime;
 
         ActiveSchedule(String name, Schedule schedule, long startTime) {
             this.name = name;
@@ -212,11 +227,22 @@ public class SchedulerEngine {
             this.scheduledTime = schedule.nextScheduledTimeAfter(startTime, currentTime);
             if (scheduledTime != -1) {
                 long delay = Math.max(0, scheduledTime - currentTime);
-                future = scheduler.schedule(this, delay, TimeUnit.MILLISECONDS);
+                try {
+                    synchronized (this) {
+                        if (future == null || future.isCancelled() == false) {
+                            future = scheduler.schedule(this, delay, TimeUnit.MILLISECONDS);
+                        }
+                    }
+                } catch (RejectedExecutionException e) {
+                    // ignoring rejections if the scheduler has been shut down already
+                    if (scheduler.isShutdown() == false) {
+                        throw e;
+                    }
+                }
             }
         }
 
-        public void cancel() {
+        public synchronized void cancel() {
             FutureUtils.cancel(future);
         }
     }

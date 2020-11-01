@@ -19,6 +19,7 @@
 
 package org.elasticsearch.action.admin.cluster.snapshots.create;
 
+import org.elasticsearch.action.ActionRequestValidationException;
 import org.elasticsearch.action.support.IndicesOptions;
 import org.elasticsearch.action.support.IndicesOptions.Option;
 import org.elasticsearch.action.support.IndicesOptions.WildcardStates;
@@ -40,6 +41,10 @@ import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
+import static org.elasticsearch.snapshots.SnapshotInfoTests.randomUserMetadata;
+import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.hasSize;
 
 public class CreateSnapshotRequestTests extends ESTestCase {
 
@@ -66,18 +71,11 @@ public class CreateSnapshotRequestTests extends ESTestCase {
         }
 
         if (randomBoolean()) {
-            Map<String, Object> settings = new HashMap<>();
-            int count = randomInt(3) + 1;
-
-            for (int i = 0; i < count; ++i) {
-                settings.put(randomAlphaOfLength(randomInt(3) + 2), randomAlphaOfLength(randomInt(3) + 2));
-            }
-
-            original.settings(settings);
+            original.includeGlobalState(randomBoolean());
         }
 
         if (randomBoolean()) {
-            original.includeGlobalState(randomBoolean());
+            original.userMetadata(randomUserMetadata());
         }
 
         if (randomBoolean()) {
@@ -107,5 +105,57 @@ public class CreateSnapshotRequestTests extends ESTestCase {
         processed.source(map);
 
         assertEquals(original, processed);
+    }
+
+    public void testSizeCheck() {
+        {
+            Map<String, Object> simple = new HashMap<>();
+            simple.put(randomAlphaOfLength(5), randomAlphaOfLength(25));
+            assertNull(createSnapshotRequestWithMetadata(simple).validate());
+        }
+
+        {
+            Map<String, Object> complex = new HashMap<>();
+            Map<String, Object> nested = new HashMap<>();
+            nested.put(randomAlphaOfLength(5), randomAlphaOfLength(5));
+            nested.put(randomAlphaOfLength(6), randomAlphaOfLength(5));
+            complex.put(randomAlphaOfLength(7), nested);
+            assertNull(createSnapshotRequestWithMetadata(complex).validate());
+        }
+
+        {
+            Map<String, Object> barelyFine = new HashMap<>();
+            barelyFine.put(randomAlphaOfLength(512), randomAlphaOfLength(505));
+            assertNull(createSnapshotRequestWithMetadata(barelyFine).validate());
+        }
+
+        {
+            Map<String, Object> barelyTooBig = new HashMap<>();
+            barelyTooBig.put(randomAlphaOfLength(512), randomAlphaOfLength(506));
+            ActionRequestValidationException validationException = createSnapshotRequestWithMetadata(barelyTooBig).validate();
+            assertNotNull(validationException);
+            assertThat(validationException.validationErrors(), hasSize(1));
+            assertThat(validationException.validationErrors().get(0), equalTo("metadata must be smaller than 1024 bytes, but was [1025]"));
+        }
+
+        {
+            Map<String, Object> tooBigOnlyIfNestedFieldsAreIncluded = new HashMap<>();
+            HashMap<Object, Object> nested = new HashMap<>();
+            nested.put(randomAlphaOfLength(500), randomAlphaOfLength(500));
+            tooBigOnlyIfNestedFieldsAreIncluded.put(randomAlphaOfLength(10), randomAlphaOfLength(10));
+            tooBigOnlyIfNestedFieldsAreIncluded.put(randomAlphaOfLength(11), nested);
+
+            ActionRequestValidationException validationException = createSnapshotRequestWithMetadata(tooBigOnlyIfNestedFieldsAreIncluded)
+                .validate();
+            assertNotNull(validationException);
+            assertThat(validationException.validationErrors(), hasSize(1));
+            assertThat(validationException.validationErrors().get(0), equalTo("metadata must be smaller than 1024 bytes, but was [1049]"));
+        }
+    }
+
+    private CreateSnapshotRequest createSnapshotRequestWithMetadata(Map<String, Object> metadata) {
+        return new CreateSnapshotRequest(randomAlphaOfLength(5), randomAlphaOfLength(5))
+            .indices(randomAlphaOfLength(5))
+            .userMetadata(metadata);
     }
 }

@@ -38,6 +38,10 @@ import static org.elasticsearch.common.xcontent.ConstructingObjectParser.constru
  */
 public class AcknowledgedResponse extends ActionResponse implements ToXContentObject {
 
+    public static final AcknowledgedResponse TRUE = new AcknowledgedResponse(true);
+
+    public static final AcknowledgedResponse FALSE = new AcknowledgedResponse(false);
+
     private static final ParseField ACKNOWLEDGED = new ParseField("acknowledged");
 
     protected static <T extends AcknowledgedResponse> void declareAcknowledgedField(ConstructingObjectParser<T, Void> objectParser) {
@@ -45,12 +49,22 @@ public class AcknowledgedResponse extends ActionResponse implements ToXContentOb
             ObjectParser.ValueType.BOOLEAN);
     }
 
-    protected boolean acknowledged;
+    protected final boolean acknowledged;
 
-    public AcknowledgedResponse() {
+    public static AcknowledgedResponse readFrom(StreamInput in) throws IOException {
+        return in.readBoolean() ? TRUE : FALSE;
     }
 
-    public AcknowledgedResponse(boolean acknowledged) {
+    protected AcknowledgedResponse(StreamInput in) throws IOException {
+        super(in);
+        acknowledged = in.readBoolean();
+    }
+
+    public static AcknowledgedResponse of(boolean acknowledged) {
+        return acknowledged ? TRUE : FALSE;
+    }
+
+    protected AcknowledgedResponse(boolean acknowledged) {
         this.acknowledged = acknowledged;
     }
 
@@ -63,14 +77,7 @@ public class AcknowledgedResponse extends ActionResponse implements ToXContentOb
     }
 
     @Override
-    public void readFrom(StreamInput in) throws IOException {
-        super.readFrom(in);
-        acknowledged = in.readBoolean();
-    }
-
-    @Override
     public void writeTo(StreamOutput out) throws IOException {
-        super.writeTo(out);
         out.writeBoolean(acknowledged);
     }
 
@@ -99,7 +106,7 @@ public class AcknowledgedResponse extends ActionResponse implements ToXContentOb
     }
 
     public static AcknowledgedResponse fromXContent(XContentParser parser) throws IOException {
-        return new AcknowledgedResponse(ACKNOWLEDGED_FLAG_PARSER.apply(parser, null));
+        return AcknowledgedResponse.of(ACKNOWLEDGED_FLAG_PARSER.apply(parser, null));
     }
 
     @Override

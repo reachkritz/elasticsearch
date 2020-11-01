@@ -5,13 +5,18 @@
  */
 package org.elasticsearch.xpack.sql.jdbc;
 
+import org.elasticsearch.geometry.utils.StandardValidator;
+import org.elasticsearch.geometry.utils.WellKnownText;
 import org.elasticsearch.xpack.sql.proto.StringUtils;
 
+import java.io.IOException;
+import java.math.BigDecimal;
 import java.sql.Date;
 import java.sql.SQLException;
 import java.sql.SQLFeatureNotSupportedException;
 import java.sql.Time;
 import java.sql.Timestamp;
+import java.text.ParseException;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -50,6 +55,8 @@ import static org.elasticsearch.xpack.sql.jdbc.JdbcDateUtils.timeAsTime;
  * NULL, BOOLEAN, TINYINT, SMALLINT, INTEGER, BIGINT, DOUBLE, REAL, FLOAT, VARCHAR, VARBINARY and TIMESTAMP
  */
 final class TypeConverter {
+
+    private static WellKnownText WKT = new WellKnownText(true, new StandardValidator(true));
 
     private TypeConverter() {}
 
@@ -98,6 +105,7 @@ final class TypeConverter {
             c.setTimeInMillis(initial);
         }
     }
+
 
 
     static long convertFromCalendarToUTC(long value, Calendar cal) {
@@ -171,6 +179,9 @@ final class TypeConverter {
         if (type == byte[].class) {
             return (T) asByteArray(val, columnType, typeString);
         }
+        if (type == BigDecimal.class) {
+            return (T) asBigDecimal(val, columnType, typeString);
+        }
         //
         // JDK 8 types
         //
@@ -203,6 +214,7 @@ final class TypeConverter {
             case BOOLEAN:
             case TEXT:
             case KEYWORD:
+            case CONSTANT_KEYWORD:
                 return v; // These types are already represented correctly in JSON
             case BYTE:
                 return ((Number) v).byteValue(); // Parser might return it as integer or long - need to update to the correct type
@@ -239,6 +251,14 @@ final class TypeConverter {
             case INTERVAL_HOUR_TO_SECOND:
             case INTERVAL_MINUTE_TO_SECOND:
                 return Duration.parse(v.toString());
+            case GEO_POINT:
+            case GEO_SHAPE:
+            case SHAPE:
+                try {
+                    return WKT.fromWKT(v.toString());
+                } catch (IOException | ParseException ex) {
+                    throw new SQLException("Cannot parse geo_shape", ex);
+                }
             case IP:
                 return v.toString();
             default:
@@ -308,6 +328,7 @@ final class TypeConverter {
                 return Boolean.valueOf(Integer.signum(((Number) val).intValue()) != 0);
             case KEYWORD:
             case TEXT:
+            case CONSTANT_KEYWORD:
                 return Boolean.valueOf((String) val);
             default:
                 return failConversion(val, columnType, typeString, Boolean.class);
@@ -330,6 +351,7 @@ final class TypeConverter {
                 return safeToByte(safeToLong(((Number) val).doubleValue()));
             case KEYWORD:
             case TEXT:
+            case CONSTANT_KEYWORD:
                 try {
                     return Byte.valueOf((String) val);
                 } catch (NumberFormatException e) {
@@ -357,6 +379,7 @@ final class TypeConverter {
                 return safeToShort(safeToLong(((Number) val).doubleValue()));
             case KEYWORD:
             case TEXT:
+            case CONSTANT_KEYWORD:
                 try {
                     return Short.valueOf((String) val);
                 } catch (NumberFormatException e) {
@@ -383,6 +406,7 @@ final class TypeConverter {
                 return safeToInt(safeToLong(((Number) val).doubleValue()));
             case KEYWORD:
             case TEXT:
+            case CONSTANT_KEYWORD:
                 try {
                     return Integer.valueOf((String) val);
                 } catch (NumberFormatException e) {
@@ -414,6 +438,7 @@ final class TypeConverter {
             //    return ((Number) val).longValue();
             case KEYWORD:
             case TEXT:
+            case CONSTANT_KEYWORD:
                 try {
                     return Long.valueOf((String) val);
                 } catch (NumberFormatException e) {
@@ -441,6 +466,7 @@ final class TypeConverter {
                 return Float.valueOf(((Number) val).floatValue());
             case KEYWORD:
             case TEXT:
+            case CONSTANT_KEYWORD:
                 try {
                     return Float.valueOf((String) val);
                 } catch (NumberFormatException e) {
@@ -467,6 +493,7 @@ final class TypeConverter {
                 return Double.valueOf(((Number) val).doubleValue());
             case KEYWORD:
             case TEXT:
+            case CONSTANT_KEYWORD:
                 try {
                     return Double.valueOf((String) val);
                 } catch (NumberFormatException e) {
@@ -512,6 +539,36 @@ final class TypeConverter {
 
     private static byte[] asByteArray(Object val, EsType columnType, String typeString) throws SQLException {
         throw new SQLFeatureNotSupportedException();
+    }
+
+    private static BigDecimal asBigDecimal(Object val, EsType columnType, String typeString) throws SQLException {
+        switch (columnType) {
+            case BOOLEAN:
+                return (Boolean) val ? BigDecimal.ONE : BigDecimal.ZERO;
+            case BYTE:
+            case SHORT:
+            case INTEGER:
+            case LONG:
+                return BigDecimal.valueOf(((Number) val).longValue());
+            case FLOAT:
+            case HALF_FLOAT:
+                // floats are passed in as doubles here, so we need to dip into string to keep original float's (reduced) precision.
+                return new BigDecimal(String.valueOf(((Number) val).floatValue()));
+            case DOUBLE:
+            case SCALED_FLOAT:
+                return BigDecimal.valueOf(((Number) val).doubleValue());
+            case KEYWORD:
+            case TEXT:
+            case CONSTANT_KEYWORD:
+                try {
+                    return new BigDecimal((String) val);
+                } catch (NumberFormatException nfe) {
+                    return failConversion(val, columnType, typeString, BigDecimal.class, nfe);
+                }
+            // TODO: should we implement numeric - interval types conversions too; ever needed? ODBC does mandate it
+            //       https://docs.microsoft.com/en-us/sql/odbc/reference/appendixes/converting-data-from-c-to-sql-data-types
+        }
+        return failConversion(val, columnType, typeString, BigDecimal.class);
     }
 
     private static LocalDate asLocalDate(Object val, EsType columnType, String typeString) throws SQLException {

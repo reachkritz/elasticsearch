@@ -166,6 +166,7 @@ public class DefCastTests extends ScriptTestCase {
         assertEquals((double)0, exec("def d = Long.valueOf(0); double b = d; b"));
         assertEquals((double)0, exec("def d = Float.valueOf(0); double b = d; b"));
         assertEquals((double)0, exec("def d = Double.valueOf(0); double b = d; b"));
+        assertEquals((double)0, exec("def d = BigInteger.valueOf(0); double b = d; b"));
         expectScriptThrows(ClassCastException.class, () -> exec("def d = new ArrayList(); double b = d;"));
     }
 
@@ -485,7 +486,7 @@ public class DefCastTests extends ScriptTestCase {
         expectScriptThrows(ClassCastException.class, () -> exec("def d = Double.valueOf(0); Float b = d;"));
         expectScriptThrows(ClassCastException.class, () -> exec("def d = new ArrayList(); Float b = d;"));
     }
-    
+
     public void testdefToDoubleImplicit() {
         expectScriptThrows(ClassCastException.class, () -> exec("def d = 'string'; Double b = d;"));
         expectScriptThrows(ClassCastException.class, () -> exec("def d = true; Double b = d;"));
@@ -682,5 +683,31 @@ public class DefCastTests extends ScriptTestCase {
 
     public void testdefToStringExplicit() {
         assertEquals("s", exec("def d = (char)'s'; String b = (String)d; b"));
+    }
+
+    public void testConstFoldingDefCast() {
+        assertFalse((boolean)exec("def chr = 10; return (chr == (char)'x');"));
+        assertFalse((boolean)exec("def chr = 10; return (chr >= (char)'x');"));
+        assertTrue((boolean)exec("def chr = (char)10; return (chr <= (char)'x');"));
+        assertTrue((boolean)exec("def chr = 10; return (chr < (char)'x');"));
+        assertFalse((boolean)exec("def chr = (char)10; return (chr > (char)'x');"));
+        assertFalse((boolean)exec("def chr = 10L; return (chr > (char)'x');"));
+        assertFalse((boolean)exec("def chr = 10F; return (chr > (char)'x');"));
+        assertFalse((boolean)exec("def chr = 10D; return (chr > (char)'x');"));
+        assertFalse((boolean)exec("def chr = (char)10L; return (chr > (byte)10);"));
+        assertFalse((boolean)exec("def chr = (char)10L; return (chr > (double)(byte)(char)10);"));
+    }
+
+    // TODO: remove this when the transition from Joda to Java datetimes is completed
+    public void testdefToZonedDateTime() {
+        assertEquals(0L, exec(
+                "Instant instant = Instant.ofEpochMilli(434931330000L);" +
+                "def d = new JodaCompatibleZonedDateTime(instant, ZoneId.of('Z'));" +
+                "def x = new HashMap(); x.put('dt', d);" +
+                "ZonedDateTime t = x['dt'];" +
+                "def y = t;" +
+                "t = y;" +
+                "return ChronoUnit.MILLIS.between(d, t);"
+        ));
     }
 }

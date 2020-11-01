@@ -22,6 +22,7 @@ import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.xcontent.NamedXContentRegistry;
 import org.elasticsearch.license.LicenseUtils;
 import org.elasticsearch.license.XPackLicenseState;
+import org.elasticsearch.tasks.Task;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.transport.TransportService;
 import org.elasticsearch.xpack.core.ClientHelper;
@@ -56,23 +57,13 @@ public class TransportDeprecationInfoAction extends TransportMasterNodeReadActio
                                           ThreadPool threadPool, ActionFilters actionFilters,
                                           IndexNameExpressionResolver indexNameExpressionResolver,
                                           XPackLicenseState licenseState, NodeClient client, NamedXContentRegistry xContentRegistry) {
-        super(DeprecationInfoAction.NAME, transportService, clusterService, threadPool, actionFilters,
-            DeprecationInfoAction.Request::new, indexNameExpressionResolver);
+        super(DeprecationInfoAction.NAME, transportService, clusterService, threadPool, actionFilters, DeprecationInfoAction.Request::new,
+                indexNameExpressionResolver, DeprecationInfoAction.Response::new, ThreadPool.Names.GENERIC);
         this.licenseState = licenseState;
         this.client = client;
         this.indexNameExpressionResolver = indexNameExpressionResolver;
         this.settings = settings;
         this.xContentRegistry = xContentRegistry;
-    }
-
-    @Override
-    protected String executor() {
-        return ThreadPool.Names.GENERIC;
-    }
-
-    @Override
-    protected DeprecationInfoAction.Response newResponse() {
-        return new DeprecationInfoAction.Response();
     }
 
     @Override
@@ -82,9 +73,9 @@ public class TransportDeprecationInfoAction extends TransportMasterNodeReadActio
     }
 
     @Override
-    protected final void masterOperation(final DeprecationInfoAction.Request request, ClusterState state,
+    protected final void masterOperation(Task task, final DeprecationInfoAction.Request request, ClusterState state,
                                          final ActionListener<DeprecationInfoAction.Response> listener) {
-        if (licenseState.isDeprecationAllowed()) {
+        if (licenseState.checkFeature(XPackLicenseState.Feature.DEPRECATION)) {
 
             NodesDeprecationCheckRequest nodeDepReq = new NodesDeprecationCheckRequest("_all");
             ClientHelper.executeAsyncWithOrigin(client, ClientHelper.DEPRECATION_ORIGIN,
@@ -103,8 +94,7 @@ public class TransportDeprecationInfoAction extends TransportMasterNodeReadActio
                     datafeeds -> {
                         listener.onResponse(
                             DeprecationInfoAction.Response.from(state, xContentRegistry, indexNameExpressionResolver,
-                                request.indices(), request.indicesOptions(), datafeeds,
-                                response, INDEX_SETTINGS_CHECKS, CLUSTER_SETTINGS_CHECKS,
+                                request, datafeeds, response, INDEX_SETTINGS_CHECKS, CLUSTER_SETTINGS_CHECKS,
                                 ML_SETTINGS_CHECKS));
                     },
                     listener::onFailure

@@ -51,6 +51,7 @@ import org.elasticsearch.index.mapper.IdFieldMapper;
 import org.elasticsearch.index.mapper.ParseContext.Document;
 import org.elasticsearch.index.mapper.ParsedDocument;
 import org.elasticsearch.index.mapper.SeqNoFieldMapper;
+import org.elasticsearch.index.mapper.Uid;
 import org.elasticsearch.index.seqno.RetentionLeases;
 import org.elasticsearch.index.seqno.SequenceNumbers;
 import org.elasticsearch.index.store.Store;
@@ -80,6 +81,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 import static org.elasticsearch.common.unit.TimeValue.timeValueMillis;
+import static org.hamcrest.Matchers.arrayContaining;
 
 /**
  * Tests how {@linkplain RefreshListeners} interacts with {@linkplain InternalEngine}.
@@ -102,8 +104,6 @@ public class RefreshListenersTests extends ESTestCase {
         listeners = new RefreshListeners(
                 () -> maxListeners,
                 () -> engine.refresh("too-many-listeners"),
-                // Immediately run listeners rather than adding them to the listener thread pool like IndexShard does to simplify the test.
-                Runnable::run,
                 logger,
                 threadPool.getThreadContext(),
                 refreshMetric);
@@ -129,7 +129,6 @@ public class RefreshListenersTests extends ESTestCase {
         store.associateIndexWithNewTranslog(translogUUID);
         EngineConfig config = new EngineConfig(
                 shardId,
-                allocationId,
                 threadPool,
                 indexSettings,
                 null,
@@ -344,13 +343,13 @@ public class RefreshListenersTests extends ESTestCase {
                         }
                         listener.assertNoError();
 
-                        Engine.Get get = new Engine.Get(false, false, "test", threadId, new Term(IdFieldMapper.NAME, threadId));
+                        Engine.Get get = new Engine.Get(false, false, threadId);
                         try (Engine.GetResult getResult = engine.get(get, engine::acquireSearcher)) {
                             assertTrue("document not found", getResult.exists());
                             assertEquals(iteration, getResult.version());
                             org.apache.lucene.document.Document document =
                                     getResult.docIdAndVersion().reader.document(getResult.docIdAndVersion().docId);
-                            assertEquals(new String[] {testFieldValue}, document.getValues("test"));
+                            assertThat(document.getValues("test"), arrayContaining(testFieldValue));
                         }
                     } catch (Exception t) {
                         throw new RuntimeException("failure on the [" + iteration + "] iteration of thread [" + threadId + "]", t);
@@ -405,9 +404,10 @@ public class RefreshListenersTests extends ESTestCase {
     }
 
     private Engine.IndexResult index(String id, String testFieldValue) throws IOException {
+        final Term uid = new Term(IdFieldMapper.NAME, Uid.encodeId(id));
         Document document = new Document();
         document.add(new TextField("test", testFieldValue, Field.Store.YES));
-        Field idField = new Field("_id", id, IdFieldMapper.Defaults.FIELD_TYPE);
+        Field idField = new Field(uid.field(), uid.bytes(), IdFieldMapper.Defaults.FIELD_TYPE);
         Field versionField = new NumericDocValuesField("_version", Versions.MATCH_ANY);
         SeqNoFieldMapper.SequenceIDFields seqID = SeqNoFieldMapper.SequenceIDFields.emptySeqID();
         document.add(idField);
@@ -416,9 +416,8 @@ public class RefreshListenersTests extends ESTestCase {
         document.add(seqID.seqNoDocValue);
         document.add(seqID.primaryTerm);
         BytesReference source = new BytesArray(new byte[] { 1 });
-        ParsedDocument doc = new ParsedDocument(versionField, seqID, id, "test", null, Arrays.asList(document), source, XContentType.JSON,
-            null);
-        Engine.Index index = new Engine.Index(new Term("_id", doc.id()), engine.config().getPrimaryTermSupplier().getAsLong(), doc);
+        ParsedDocument doc = new ParsedDocument(versionField, seqID, id, null, Arrays.asList(document), source, XContentType.JSON, null);
+        Engine.Index index = new Engine.Index(uid, engine.config().getPrimaryTermSupplier().getAsLong(), doc);
         return engine.index(index);
     }
 

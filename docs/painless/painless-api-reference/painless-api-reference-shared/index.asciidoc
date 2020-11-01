@@ -5,6 +5,10 @@
 
 The following API is available in all contexts.
 
+==== Classes By Package
+The following classes are available grouped by their respective packages. Click on a class to view details about the available methods and fields.
+
+
 ==== java.lang
 <<painless-api-reference-shared-java-lang, Expand details for java.lang>>
 
@@ -53,7 +57,6 @@ The following API is available in all contexts.
 * <<painless-api-reference-shared-Short, Short>>
 * <<painless-api-reference-shared-StackTraceElement, StackTraceElement>>
 * <<painless-api-reference-shared-StrictMath, StrictMath>>
-* <<painless-api-reference-shared-String, String>>
 * <<painless-api-reference-shared-StringBuffer, StringBuffer>>
 * <<painless-api-reference-shared-StringBuilder, StringBuilder>>
 * <<painless-api-reference-shared-StringIndexOutOfBoundsException, StringIndexOutOfBoundsException>>

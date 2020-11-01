@@ -19,6 +19,7 @@
 
 package org.elasticsearch.action.admin.cluster.reroute;
 
+import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.message.ParameterizedMessage;
 import org.elasticsearch.ExceptionsHelper;
@@ -46,6 +47,7 @@ import org.elasticsearch.common.Strings;
 import org.elasticsearch.common.collect.ImmutableOpenIntMap;
 import org.elasticsearch.common.collect.ImmutableOpenMap;
 import org.elasticsearch.common.inject.Inject;
+import org.elasticsearch.tasks.Task;
 import org.elasticsearch.threadpool.ThreadPool;
 import org.elasticsearch.transport.TransportService;
 
@@ -56,6 +58,8 @@ import java.util.Map;
 
 public class TransportClusterRerouteAction extends TransportMasterNodeAction<ClusterRerouteRequest, ClusterRerouteResponse> {
 
+    private static final Logger logger = LogManager.getLogger(TransportClusterRerouteAction.class);
+
     private final AllocationService allocationService;
 
     @Inject
@@ -63,14 +67,8 @@ public class TransportClusterRerouteAction extends TransportMasterNodeAction<Clu
                                          ThreadPool threadPool, AllocationService allocationService, ActionFilters actionFilters,
                                          IndexNameExpressionResolver indexNameExpressionResolver) {
         super(ClusterRerouteAction.NAME, transportService, clusterService, threadPool, actionFilters,
-              indexNameExpressionResolver, ClusterRerouteRequest::new);
+              ClusterRerouteRequest::new, indexNameExpressionResolver, ClusterRerouteResponse::new, ThreadPool.Names.SAME);
         this.allocationService = allocationService;
-    }
-
-    @Override
-    protected String executor() {
-        // we go async right away
-        return ThreadPool.Names.SAME;
     }
 
     @Override
@@ -79,12 +77,7 @@ public class TransportClusterRerouteAction extends TransportMasterNodeAction<Clu
     }
 
     @Override
-    protected ClusterRerouteResponse newResponse() {
-        return new ClusterRerouteResponse();
-    }
-
-    @Override
-    protected void masterOperation(final ClusterRerouteRequest request, final ClusterState state,
+    protected void masterOperation(Task task, final ClusterRerouteRequest request, final ClusterState state,
                                    final ActionListener<ClusterRerouteResponse> listener) {
         Map<String, List<AbstractAllocateAllocationCommand>> stalePrimaryAllocations = new HashMap<>();
         for (AllocationCommand command : request.getCommands().commands()) {

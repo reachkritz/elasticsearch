@@ -27,16 +27,18 @@ public class MonitoringFeatureSetUsage extends XPackFeatureSet.Usage {
     public MonitoringFeatureSetUsage(StreamInput in) throws IOException {
         super(in);
         exporters = in.readMap();
-        if (in.getVersion().onOrAfter(Version.V_6_3_0)) {
-            collectionEnabled = in.readOptionalBoolean();
-        }
+        collectionEnabled = in.readOptionalBoolean();
     }
 
-    public MonitoringFeatureSetUsage(boolean available, boolean enabled,
-                                     boolean collectionEnabled, Map<String, Object> exporters) {
-        super(XPackField.MONITORING, available, enabled);
+    public MonitoringFeatureSetUsage(boolean available, boolean collectionEnabled, Map<String, Object> exporters) {
+        super(XPackField.MONITORING, available, true);
         this.exporters = exporters;
         this.collectionEnabled = collectionEnabled;
+    }
+
+    @Override
+    public Version getMinimalSupportedVersion() {
+        return Version.V_7_0_0;
     }
 
     public Map<String, Object> getExporters() {
@@ -47,9 +49,7 @@ public class MonitoringFeatureSetUsage extends XPackFeatureSet.Usage {
     public void writeTo(StreamOutput out) throws IOException {
         super.writeTo(out);
         out.writeMap(exporters);
-        if (out.getVersion().onOrAfter(Version.V_6_3_0)) {
-            out.writeOptionalBoolean(collectionEnabled);
-        }
+        out.writeOptionalBoolean(collectionEnabled);
     }
 
     @Override

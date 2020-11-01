@@ -23,18 +23,20 @@ import org.apache.lucene.search.Sort;
 import org.apache.lucene.search.SortField;
 import org.apache.lucene.search.SortedNumericSortField;
 import org.apache.lucene.search.SortedSetSortField;
-import org.elasticsearch.Version;
 import org.elasticsearch.common.settings.Setting;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.index.fielddata.IndexFieldData;
 import org.elasticsearch.index.mapper.MappedFieldType;
 import org.elasticsearch.search.MultiValueMode;
+import org.elasticsearch.search.lookup.SearchLookup;
 import org.elasticsearch.search.sort.SortOrder;
 
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.function.BiFunction;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 /**
  * Holds all the information that is used to build the sort order of an index.
@@ -120,15 +122,6 @@ public final class IndexSortConfig {
             .map((name) -> new FieldSortSpec(name))
             .toArray(FieldSortSpec[]::new);
 
-        if (sortSpecs.length > 0 && indexSettings.getIndexVersionCreated().before(Version.V_6_0_0_alpha1)) {
-            /**
-             * This index might be assigned to a node where the index sorting feature is not available
-             * (ie. versions prior to {@link Version.V_6_0_0_alpha1_UNRELEASED}) so we must fail here rather than later.
-             */
-            throw new IllegalArgumentException("unsupported index.version.created:" + indexSettings.getIndexVersionCreated() +
-                ", can't set index.sort on versions prior to " + Version.V_6_0_0_alpha1);
-        }
-
         if (INDEX_SORT_ORDER_SETTING.exists(settings)) {
             List<SortOrder> orders = INDEX_SORT_ORDER_SETTING.get(settings);
             if (orders.size() != sortSpecs.length) {
@@ -171,12 +164,17 @@ public final class IndexSortConfig {
         return sortSpecs.length > 0;
     }
 
+    public boolean hasPrimarySortOnField(String field) {
+        return sortSpecs.length > 0
+            && sortSpecs[0].field.equals(field);
+    }
+
     /**
      * Builds the {@link Sort} order from the settings for this index
      * or returns null if this index has no sort.
      */
     public Sort buildIndexSort(Function<String, MappedFieldType> fieldTypeLookup,
-                               Function<MappedFieldType, IndexFieldData<?>> fieldDataLookup) {
+                               BiFunction<MappedFieldType, Supplier<SearchLookup>, IndexFieldData<?>> fieldDataLookup) {
         if (hasIndexSort() == false) {
             return null;
         }
@@ -195,9 +193,11 @@ public final class IndexSortConfig {
             }
             IndexFieldData<?> fieldData;
             try {
-                fieldData = fieldDataLookup.apply(ft);
+                fieldData = fieldDataLookup.apply(ft, () -> {
+                    throw new UnsupportedOperationException("index sorting not supported on runtime field [" + ft.name() + "]");
+                });
             } catch (Exception e) {
-                throw new IllegalArgumentException("docvalues not found for index sort field:[" + sortSpec.field + "]");
+                throw new IllegalArgumentException("docvalues not found for index sort field:[" + sortSpec.field + "]", e);
             }
             if (fieldData == null) {
                 throw new IllegalArgumentException("docvalues not found for index sort field:[" + sortSpec.field + "]");
